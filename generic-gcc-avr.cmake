@@ -169,8 +169,8 @@ endif(WITH_MCU)
 # do we need the efuse
 ##########################################################################
 if(AVR_USE_E_FUSE)
-   set(E_FUSE_READ "-U efuse:r:-:b")
-   set(E_FUSE_WRITE "-U efuse:w:${AVR_E_FUSE}:m")
+   set(E_FUSE_READ "-U" "efuse:r:-:b")
+   set(E_FUSE_WRITE "-U" "efuse:w:${AVR_E_FUSE}:m")
 else(AVR_USE_E_FUSE)
    set(E_FUSE_READ "")
    set(E_FUSE_WRITE "")
