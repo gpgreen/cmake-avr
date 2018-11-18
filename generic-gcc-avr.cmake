@@ -16,11 +16,14 @@
 #     the type of AVR the application is built for used in gcc
 # AVRDUDE_MCU (default: atmega8)
 #     the AVR code used by the programmer
+# AVR_USE_E_FUSE (DEFAULT no)
+#     does this mcu have an extended fuse that
+#     needs to be programmed
 # AVR_L_FUSE (NO DEFAULT)
 #     the LOW fuse value for the MCU used
 # AVR_H_FUSE (NO DEFAULT)
 #     the HIGH fuse value for the MCU used
-# AVR_E_FUSE (NO DEFAULT)
+# AVR_E_FUSE (DEFAULT n/a)
 #     the EXTENDED fuse value for the MCU used
 # AVR_UPLOADTOOL (default: avrdude)
 #     the application used to upload to the MCU
@@ -120,6 +123,14 @@ if(NOT AVR_SIZE_ARGS)
    endif(APPLE)
 endif(NOT AVR_SIZE_ARGS)
 
+# avr e fuse value
+if(NOT AVR_E_FUSE)
+  set(
+    AVR_E_FUSE n/a
+    CACHE STRING "Set default Extended Fuse: n/a"
+  )
+endif(NOT AVR_E_FUSE)
+
 ##########################################################################
 # check build types:
 # - Debug
@@ -155,6 +166,17 @@ else(WITH_MCU)
 endif(WITH_MCU)
 
 ##########################################################################
+# do we need the efuse
+##########################################################################
+if(AVR_USE_E_FUSE)
+   set(E_FUSE_READ "-U efuse:r:-:b")
+   set(E_FUSE_WRITE "-U efuse:w:${AVR_E_FUSE}:m")
+else(AVR_USE_E_FUSE)
+   set(E_FUSE_READ "")
+   set(E_FUSE_WRITE "")
+endif(AVR_USE_E_FUSE)
+
+##########################################################################
 # add_avr_executable
 # - IN_VAR: EXECUTABLE_NAME
 #
@@ -173,7 +195,8 @@ function(add_avr_executable EXECUTABLE_NAME)
    set(hex_file ${EXECUTABLE_NAME}${MCU_TYPE_FOR_FILENAME}.hex)
    set(map_file ${EXECUTABLE_NAME}${MCU_TYPE_FOR_FILENAME}.map)
    set(eeprom_image ${EXECUTABLE_NAME}${MCU_TYPE_FOR_FILENAME}-eeprom.hex)
-
+   set(list_file ${EXECUTABLE_NAME}${MCU_TYPE_FOR_FILENAME}.lst)
+   
    # elf file
    add_executable(${elf_file} EXCLUDE_FROM_ALL ${ARGN})
 
@@ -181,7 +204,7 @@ function(add_avr_executable EXECUTABLE_NAME)
       ${elf_file}
       PROPERTIES
          COMPILE_FLAGS "-mmcu=${AVR_MCU}"
-         LINK_FLAGS "-mmcu=${AVR_MCU} -Wl,--gc-sections -mrelax -Wl,-Map,${map_file}"
+         LINK_FLAGS "-mmcu=${AVR_MCU} -Wl,--gc-sections -mrelax -Wl,-Map,${map_file} -Wl,-u,vfprintf -lprintf_min"
    )
 
    add_custom_command(
@@ -219,7 +242,7 @@ function(add_avr_executable EXECUTABLE_NAME)
    get_directory_property(clean_files ADDITIONAL_MAKE_CLEAN_FILES)
    set_directory_properties(
       PROPERTIES
-         ADDITIONAL_MAKE_CLEAN_FILES "${map_file}"
+         ADDITIONAL_MAKE_CLEAN_FILES "${map_file} ${list_file}"
    )
 
    # upload - with avrdude
@@ -246,34 +269,38 @@ function(add_avr_executable EXECUTABLE_NAME)
    # get status
    add_custom_target(
       get_status
-      ${AVR_UPLOADTOOL} -p ${AVRDUDE_MCU} -c ${AVR_PROGRAMMER} -P ${AVR_UPLOADTOOL_PORT} -n -v
+      ${AVR_UPLOADTOOL} -p ${AVRDUDE_MCU} -c ${AVR_PROGRAMMER} ${AVR_UPLOADTOOL_OPTIONS}
+          -P ${AVR_UPLOADTOOL_PORT} -n -v
       COMMENT "Get status from ${AVRDUDE_MCU}"
    )
 
    # get fuses
    add_custom_target(
       get_fuses
-      ${AVR_UPLOADTOOL} -p ${AVRDUDE_MCU} -c ${AVR_PROGRAMMER} -P ${AVR_UPLOADTOOL_PORT} -n
+      ${AVR_UPLOADTOOL} -p ${AVRDUDE_MCU} -c ${AVR_PROGRAMMER} ${AVR_UPLOADTOOL_OPTIONS}
+         -P ${AVR_UPLOADTOOL_PORT} -n
          -U lfuse:r:-:b
          -U hfuse:r:-:b
-	 -U efuse:r:-:b
+	 ${E_FUSE_READ}
       COMMENT "Get fuses from ${AVRDUDE_MCU}"
    )
 
    # set fuses
    add_custom_target(
       set_fuses
-      ${AVR_UPLOADTOOL} -p ${AVRDUDE_MCU} -c ${AVR_PROGRAMMER} -P ${AVR_UPLOADTOOL_PORT}
+      ${AVR_UPLOADTOOL} -p ${AVRDUDE_MCU} -c ${AVR_PROGRAMMER} ${AVR_UPLOADTOOL_OPTIONS}
+         -P ${AVR_UPLOADTOOL_PORT}
          -U lfuse:w:${AVR_L_FUSE}:m
          -U hfuse:w:${AVR_H_FUSE}:m
-	 -U efuse:w:${AVR_E_FUSE}:m
+	 ${E_FUSE_WRITE}
          COMMENT "Setup: Extended Fuse: ${AVR_E_FUSE} High Fuse: ${AVR_H_FUSE} Low Fuse: ${AVR_L_FUSE}"
    )
 
    # get oscillator calibration
    add_custom_target(
       get_calibration
-         ${AVR_UPLOADTOOL} -p ${AVRDUDE_MCU} -c ${AVR_PROGRAMMER} -P ${AVR_UPLOADTOOL_PORT}
+         ${AVR_UPLOADTOOL} -p ${AVRDUDE_MCU} -c ${AVR_PROGRAMMER} ${AVR_UPLOADTOOL_OPTIONS}
+	 -P ${AVR_UPLOADTOOL_PORT}
          -U calibration:r:${AVRDUDE_MCU}_calib.tmp:r
          COMMENT "Write calibration status of internal oscillator to ${AVRDUDE_MCU}_calib.tmp."
    )
@@ -281,7 +308,8 @@ function(add_avr_executable EXECUTABLE_NAME)
    # set oscillator calibration
    add_custom_target(
       set_calibration
-      ${AVR_UPLOADTOOL} -p ${AVRDUDE_MCU} -c ${AVR_PROGRAMMER} -P ${AVR_UPLOADTOOL_PORT}
+      ${AVR_UPLOADTOOL} -p ${AVRDUDE_MCU} -c ${AVR_PROGRAMMER} ${AVR_UPLOADTOOL_OPTIONS}
+         -P ${AVR_UPLOADTOOL_PORT}
          -U calibration:w:${AVRDUDE_MCU}_calib.hex
          COMMENT "Program calibration status of internal oscillator from ${AVRDUDE_MCU}_calib.hex."
    )
@@ -289,7 +317,7 @@ function(add_avr_executable EXECUTABLE_NAME)
    # disassemble
    add_custom_target(
       disassemble_${EXECUTABLE_NAME}
-      ${AVR_OBJDUMP} -h -S ${elf_file} > ${EXECUTABLE_NAME}.lst
+      ${AVR_OBJDUMP} -h -S ${elf_file} > ${list_file}
       DEPENDS ${elf_file}
    )
 
